@@ -131,7 +131,7 @@ pip install qiskit pennylane numpy scipy fastapi uvicorn requests jupyter
   Start Alice's FastAPI server in one terminal:
   ```bash
   cd "CH4 BB84"
-  uvicorn bb84:app --reload --port 8000
+  uvicorn bb84:app
   ```
   Run Bob's client in a second terminal:
   ```bash
