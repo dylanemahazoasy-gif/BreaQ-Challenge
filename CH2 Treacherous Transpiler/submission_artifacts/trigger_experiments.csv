@@ -1,0 +1,7 @@
+experiment_name,malware_triggered
+MATCH: Echo CX-Rz-CX on TARGET qubit with valid angle,True
+MISS: Angle falls outside the activation window,False
+MISS: Wrong rotation axis (Rx instead of Rz),False
+MISS: Rz placed on the CONTROL wire instead of TARGET,False
+MISS: Sequence interrupted by another gate on target wire,False
+MATCH: Spectator gate on unrelated wire q2 preserves DAG adjacency on q1,True

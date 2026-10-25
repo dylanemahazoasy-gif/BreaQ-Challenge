@@ -1,0 +1,402 @@
+{
+  "schema": "breaq-submission-v1",
+  "challenge": "02-treacherous-transpiler",
+  "team_id": "DEMO-TEAM",
+  "instance_seed": 2026,
+  "environment": {
+    "python": "3.13.7",
+    "qiskit": "2.6.1"
+  },
+  "security_claim": "The suspect compiler's 03:vendor-echo-balance pass (_EchoBalance) violates standalone unitary equivalence by negating the rotation angle (theta -> -theta) of the first Rz(theta) gate on the target wire of a consecutive CX-Rz-CX pattern whenever theta lies in the seed-dependent window [0.325, 0.825] rad; because this relative phase flip can evade Z-basis histograms (SCAN-D, SCAN-F) and all-zero state fidelity (SCAN-F), compilation must be guarded by an independent full-unitary translation validator (verify_compilation / guarded_compile).",
+  "threat_model": {
+    "protected_asset": "The semantic integrity of the submitted quantum computation.",
+    "attacker_capability": "Control over a third-party quantum compiler.",
+    "trust_boundary": "Between the thrusted local environment (source circuit, local Qiskit routines, verifier) and the unstrusted remote compiler service.",
+    "security_property": "Exact standalone-unitary equivalence up to global phase.",
+    "trusted_components": [
+      "source circuit",
+      "local Qiskit math routines",
+      "local simulator",
+      "operating system",
+      "notebook"
+    ],
+    "out_of_scope": [
+      "classical bits",
+      "dynamic control",
+      "ancillas",
+      "physical placement",
+      "routing",
+      "production scalability",
+      "physical-layout-aware comparison"
+    ]
+  },
+  "first_bad_transition": "02:phase-convention -> 03:vendor-echo-balance",
+  "trigger_hypothesis": "Based on source inspection of _EchoBalance in service.py and experimental verification, the service alters semantics if and only if it detects a consecutive ('cx', 'rz', 'cx') sequence on a wire (after barrier removal) where both CX gates share identical (control, target) qubits, the Rz acts exclusively on the CX TARGET qubit (left.qargs[1] == wire), and the Rz angle falls within the team's seed-dependent window [0.325, 0.825]. If activated, it negates the Rz angle (theta -> -theta) on the first matching pattern.",
+  "completion_status": {
+    "core": true,
+    "exploit": true,
+    "defense": true
+  },
+  "claims": [
+    {
+      "claim": "Single-basis histograms and all-zero state fidelity are insufficient to verify compiler integrity",
+      "evidence": "Level 1 (comparison_rows, comparison.csv): SCAN-D shows total_variation_distance = 0.0 in the Z basis while state_fidelity = 0.704244 and unitary_equivalent = False. SCAN-F shows BOTH total_variation_distance = 0.0 and state_fidelity = 1.0 on |000>, yet unitary_equivalent = False.",
+      "assumption": "The service contract requires standalone unitary equivalence up to global phase across the full 2^n Hilbert space, and local Qiskit Operator/Statevector computations are trusted.",
+      "limitation": "Dense unitary Operator comparison scales as O(4^n) memory and O(8^n) time, limiting exact matrix verification to small circuits (1..6 qubits in this lab contract)."
+    },
+    {
+      "claim": "The first and only semantic violation occurs at the 02:phase-convention -> 03:vendor-echo-balance transition",
+      "evidence": "Level 2 (stage_evidence, stage_localization.csv): Consecutive Operator.equiv checks across trace snapshots return True for 00:input -> 01:normalization (barrier removal), True for 01:normalization -> 02:phase-convention (+pi/7 global phase), False at 02:phase-convention -> 03:vendor-echo-balance (Rz(0.575) mutated to Rz(-0.575)), and True for 03:vendor-echo-balance -> 04:basis-lowering.",
+      "assumption": "Detached stage snapshots from service.trace accurately reflect intermediate compiler states for fault localization (end-to-end verification between source and final candidate does not rely on trusting trace logs).",
+      "limitation": "An untrusted remote compiler could falsify diagnostic trace snapshots while still returning a compromised final circuit."
+    },
+    {
+      "claim": "The trojan activates selectively on a DAG wire-adjacent ('cx', 'rz', 'cx') pattern with Rz on the CX target qubit and theta in [lower, upper]",
+      "evidence": "Level 2 & Extensions (trigger_experiments, trigger_boundary_sweep.csv): Controlled counterfactuals confirm activation only when Rz is on the CX target wire (q1), unbroken on that wire in the DAG after barrier removal, and theta lies within [0.33, 0.82] \u00b1 0.01 rad (exact profile [0.325, 0.825]).",
+      "assumption": "The compiler pass is deterministic for a fixed instance seed.",
+      "limitation": "Characterizing one trigger does not prove the absence of other dormant triggers in an untrusted plugin supply chain."
+    },
+    {
+      "claim": "A 2-qubit, 3-gate circuit (CX-Rz-CX) is a minimal reproducer whose silent phase corruption becomes observable via trusted preparation and analysis",
+      "evidence": "Minimal Reproducer (minimal_source, reproducer_evidence): Deleting any of the 3 gates restores equivalence. On |00>, the bare reproducer has TV = 0.0 and fidelity = 1.0, but attaching trusted h(1) preparation and sdg(1); h(1) analysis externally yields TV = sin(theta) = 0.543835 and fidelity = 0.704244.",
+      "assumption": "State preparation and measurement-basis analysis gates are attached in the trusted local environment after compilation.",
+      "limitation": "A single fixed witness only probes a specific subspace/observable and does not replace full unitary verification."
+    },
+    {
+      "claim": "verify_compilation and guarded_compile block all compromised and out-of-contract circuits while accepting legitimate rewrites",
+      "evidence": "Level 3 (defense_evidence, submission_artifacts/student_api.py): Across 24 test cases (baseline compilations, benign suspect compilations, Euler basis rewrites with global phase, barrier removal, compromised workloads, minimal reproducer, relative-phase mutations, and malformed inputs), the verifier achieves TP=9, FN=0, TN=15, FP=0.",
+      "assumption": "Input and output logical wires share a fixed 1-to-1 identity mapping without qubit routing or ancillas.",
+      "limitation": "Operator.equiv ignores global phase (unsafe if the circuit is later coherently controlled) and does not scale to large qubit counts."
+    }
+  ],
+  "member_contributions": [
+    {
+      "member": "Investigator",
+      "role": "Incident triage, multi-metric comparison, and stage localization",
+      "contributions": [
+        "Compared Z-basis TV distance, all-zero state fidelity, and Operator equivalence across all 8 workloads (inspect_compilation).",
+        "Identified metric disagreements on SCAN-D and SCAN-F and localized the first semantic violation to 02:phase-convention -> 03:vendor-echo-balance."
+      ]
+    },
+    {
+      "member": "Exploit developer",
+      "role": "Trigger discovery, minimal reproducer, and observable witness construction",
+      "contributions": [
+        "Verified the CX-Rz-CX target-wire trigger conditions and angle window via controlled counterfactuals and a 96-point boundary sweep.",
+        "Constructed the 2-qubit, 3-gate minimal_source reproducer, proved minimality by single-gate deletions, and built attach_trusted_witness."
+      ]
+    },
+    {
+      "member": "Defense analyst",
+      "role": "Translation validation gate, contract enforcement, and negative/positive evaluation",
+      "contributions": [
+        "Implemented verify_compilation and guarded_compile in the notebook and standalone submission_artifacts/student_api.py.",
+        "Evaluated confusion matrix (TP=9, FN=0, TN=15, FP=0), documented verifier_limitations, and analyzed metamorphic and DAG extensions."
+      ]
+    }
+  ],
+  "hints_used": [],
+  "verifier_limitations": [
+    "Exponential complexity O(4^n) memory and O(8^n) time: building full 2^n x 2^n unitary matrices via Operator scales only to small circuits (n <= 6 in this lab) and is intractable for utility-scale quantum processors.",
+    "Standalone global-phase blindness: Operator.equiv ignores global phase, which is valid for standalone execution but unsafe if the compiled circuit is later embedded as a coherently controlled subroutine (where global phase becomes a relative phase).",
+    "Fixed logical wire assumption: the verifier assumes a 1-to-1 identity mapping between input and output logical wires and will reject legitimate hardware compilations that permute physical qubits via routing/SWAPs or use ancilla qubits unless layout metadata is accounted for.",
+    "Numerical tolerance boundary: Operator.equiv relies on floating-point tolerances (atol/rtol), meaning an adversary could theoretically chain tiny sub-threshold angle perturbations that individually pass numerical checks."
+  ],
+  "comparison": [
+    {
+      "case_id": "CAL-BELL",
+      "source_gate_count": 2,
+      "candidate_gate_count": 4,
+      "source_depth": 2,
+      "candidate_depth": 4,
+      "total_variation_distance": 1.6653345369377348e-16,
+      "state_fidelity": 0.9999999999999998,
+      "unitary_equivalent": true
+    },
+    {
+      "case_id": "LEGACY-REDUNDANCY",
+      "source_gate_count": 6,
+      "candidate_gate_count": 0,
+      "source_depth": 4,
+      "candidate_depth": 0,
+      "total_variation_distance": 2.220446049250313e-16,
+      "state_fidelity": 0.9999999999999996,
+      "unitary_equivalent": true
+    },
+    {
+      "case_id": "SCAN-A",
+      "source_gate_count": 8,
+      "candidate_gate_count": 12,
+      "source_depth": 6,
+      "candidate_depth": 8,
+      "total_variation_distance": 2.220446049250313e-16,
+      "state_fidelity": 0.9999999999999993,
+      "unitary_equivalent": true
+    },
+    {
+      "case_id": "SCAN-B",
+      "source_gate_count": 8,
+      "candidate_gate_count": 12,
+      "source_depth": 6,
+      "candidate_depth": 8,
+      "total_variation_distance": 0.5438347906836425,
+      "state_fidelity": 0.7042437204420781,
+      "unitary_equivalent": false
+    },
+    {
+      "case_id": "SCAN-C",
+      "source_gate_count": 8,
+      "candidate_gate_count": 12,
+      "source_depth": 6,
+      "candidate_depth": 8,
+      "total_variation_distance": 4.718447854656915e-16,
+      "state_fidelity": 0.9999999999999993,
+      "unitary_equivalent": true
+    },
+    {
+      "case_id": "SCAN-D",
+      "source_gate_count": 6,
+      "candidate_gate_count": 10,
+      "source_depth": 4,
+      "candidate_depth": 6,
+      "total_variation_distance": 2.498001805406602e-16,
+      "state_fidelity": 0.7042437204420786,
+      "unitary_equivalent": false
+    },
+    {
+      "case_id": "SCAN-E",
+      "source_gate_count": 8,
+      "candidate_gate_count": 12,
+      "source_depth": 6,
+      "candidate_depth": 8,
+      "total_variation_distance": 2.5673907444456745e-16,
+      "state_fidelity": 0.9999999999999987,
+      "unitary_equivalent": true
+    },
+    {
+      "case_id": "SCAN-F",
+      "source_gate_count": 4,
+      "candidate_gate_count": 4,
+      "source_depth": 3,
+      "candidate_depth": 3,
+      "total_variation_distance": 0.0,
+      "state_fidelity": 1.0,
+      "unitary_equivalent": false
+    }
+  ],
+  "defense_evidence": {
+    "confusion_matrix": {
+      "TP_mismatches_correctly_rejected": 9,
+      "FN_mismatches_missed": 0,
+      "TN_legitimate_rewrites_accepted": 15,
+      "FP_legitimate_rewrites_falsely_rejected": 0
+    },
+    "guarded_compile_checks": {
+      "blocked_compromised_SCAN_B": true,
+      "accepted_benign_CAL_BELL": true
+    },
+    "test_details": [
+      {
+        "test_case": "baseline_CAL-BELL",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "baseline_LEGACY-REDUNDANCY",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "baseline_SCAN-A",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "baseline_SCAN-B",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "baseline_SCAN-C",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "baseline_SCAN-D",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "baseline_SCAN-E",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "baseline_SCAN-F",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "suspect_benign_CAL-BELL",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "suspect_benign_LEGACY-REDUNDANCY",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "suspect_benign_SCAN-A",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "suspect_benign_SCAN-C",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "suspect_benign_SCAN-E",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "legitimate_basis_rewrite_with_global_phase",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "legitimate_barrier_removal_and_phase",
+        "ground_truth": "equivalent/valid (Negative)",
+        "verification_result": true,
+        "outcome": "TN"
+      },
+      {
+        "test_case": "suspect_compromised_SCAN-B",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "suspect_compromised_SCAN-D",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "suspect_compromised_SCAN-F",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "minimal_reproducer_compromised",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "semantic_mutation_relative_phase",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "invalid_width_mismatch",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "invalid_width_too_many_qubits",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "invalid_contains_classical_bits",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      },
+      {
+        "test_case": "invalid_non_circuit_object",
+        "ground_truth": "non-equivalent/invalid (Positive)",
+        "verification_result": false,
+        "outcome": "TP"
+      }
+    ]
+  },
+  "reproducer_evidence": {
+    "minimization_criterion": "Minimum width (2 qubits) and minimum gate count (3 gates: CX-Rz-CX)",
+    "minimal_circuit_specs": {
+      "num_qubits": 2,
+      "num_gates": 3,
+      "operations": {
+        "cx": 2,
+        "rz": 1
+      },
+      "angle": 0.575
+    },
+    "deletations_tested_all_preserved_equivalence": {
+      "remove_left_cx_equiv": true,
+      "remove_right_cx_equiv": true,
+      "remove_middle_rz_equiv": true
+    },
+    "bare_subroutine_on_zero_input": {
+      "unitary_equivalent_to_source": false,
+      "baseline_unitary_equivalent": true,
+      "zero_input_state_fidelity": 1.0,
+      "zero_input_tv": 0.0,
+      "source_probabilities": {
+        "00": 1.0
+      },
+      "suspect_probabilities": {
+        "00": 1.0
+      }
+    },
+    "trusted_witness_experiment": {
+      "preperation_gates": [
+        "h(1)"
+      ],
+      "analysis_gates": [
+        "sdg(1)",
+        "h(1)"
+      ],
+      "witness_state_fidelity": 0.7042437204420784,
+      "witness_tv": 0.5438347906836425,
+      "theoretical_tv_distance_sin_theta": 0.5438347906836426,
+      "source_witness_probabilities": {
+        "00": 0.7719173953418212,
+        "10": 0.2280826046581787
+      },
+      "suspect_witness_probabilities": {
+        "00": 0.2280826046581787,
+        "10": 0.7719173953418211
+      },
+      "source_witness_counts_512": {
+        "00": 400,
+        "10": 112
+      },
+      "suspect_witness_counts_512": {
+        "00": 113,
+        "10": 399
+      }
+    }
+  }
+}

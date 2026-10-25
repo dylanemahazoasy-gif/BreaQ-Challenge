@@ -1,0 +1,195 @@
+{
+  "team_id": "DEMO-TEAM",
+  "challenge": "01-trust-no-input",
+  "security_claim": "The verification failures in MIG-DELTA and INCIDENT-7 are caused not by quantum noise or circuit construction, but by an application-layer trust-boundary violation in ChallengeService.execute, which passes untrusted manifest compatibility_map permutations into compatibility_decode() prior to the authorization check; enforcing canonical q0..q(n-1) decoding (secure_decode / secure_decision) restores 100% soundness and completeness across all permutations.",
+  "root_cause_layer": "Application post-processing / reporting adapter layer (compatibility_decode in ChallengeService.execute)",
+  "minimal_reproducer": {
+    "source_fingerprint": "1000",
+    "config_identity": {
+      "compatibility_map": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "counts": {
+        "0001": 512
+      },
+      "canonical_fingerprint": "1000",
+      "reported_fingerprint": "1000",
+      "decision": "MATCH"
+    },
+    "config_swapped": {
+      "compatibility_map": [
+        1,
+        0,
+        2,
+        3
+      ],
+      "counts": {
+        "0001": 512
+      },
+      "canonical_fingerprint": "1000",
+      "reported_fingerprint": "0100",
+      "decision": "MISMATCH"
+    }
+  },
+  "defense_results": {
+    "implemented": true,
+    "passed": 13,
+    "failed": 0,
+    "details": [
+      {
+        "name": "instance_case_CAL-ALPHA",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "instance_case_CAL-BETA",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "instance_case_MIG-DELTA",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "instance_case_INCIDENT-7",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "unseen_positive_0000_map_[1, 0, 2, 3]",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "unseen_positive_1111_map_[3, 2, 1, 0]",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "unseen_positive_0101_map_[1, 0, 3, 2]",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "unseen_positive_1011_map_[2, 3, 0, 1]",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "unseen_positive_0010_map_[0, 2, 1, 3]",
+        "passed": true,
+        "expected": "MATCH",
+        "actual": "MATCH"
+      },
+      {
+        "name": "unseen_negative_oracle_0101_vs_reg_1100",
+        "passed": true,
+        "expected": "MISMATCH",
+        "actual": "MISMATCH"
+      },
+      {
+        "name": "unseen_negative_oracle_0010_vs_reg_1000",
+        "passed": true,
+        "expected": "MISMATCH",
+        "actual": "MISMATCH"
+      },
+      {
+        "name": "unseen_negative_oracle_1011_vs_reg_1110",
+        "passed": true,
+        "expected": "MISMATCH",
+        "actual": "MISMATCH"
+      },
+      {
+        "name": "unseen_negative_oracle_1111_vs_reg_0000",
+        "passed": true,
+        "expected": "MISMATCH",
+        "actual": "MISMATCH"
+      }
+    ]
+  },
+  "attack_demo": {
+    "reachable_case": {
+      "source_fingerprint": "1100",
+      "target_fingerprint": "0101",
+      "crafted_compatibility_map": [
+        2,
+        0,
+        3,
+        1
+      ],
+      "canonical_fingerprint": "1100",
+      "reported_fingerprint": "0101",
+      "exploit_succeeded": true
+    },
+    "unreachable_case": {
+      "source_fingerprint": "1100",
+      "target_fingerprint": "1110",
+      "crafted_compatibility_map": null,
+      "is_impossible": true
+    }
+  },
+  "claims": [
+    {
+      "claim": "The fault is NOT quantum noise",
+      "evidence": "Phase A & B (results, localization_evidence): Raw backend counts are 100% deterministic (512/512 shots on a single bitstring, e.g. {'0101': 512} for MIG-DELTA) and match measurement-free Statevector probabilities (p = 1.0).",
+      "assumption": "The backend simulator (BasicSimulator) executes ideal unitary gates without decoherence or readout errors.",
+      "limitation": "On real NISQ quantum hardware, gate and readout noise will distribute shots across multiple keys, requiring a statistical threshold around dominant_key(counts)."
+    },
+    {
+      "claim": "The circuit DOES encode the registry value",
+      "evidence": "Phase B (circuit.draw, Statevector, canonical_bits_from_counts): Inspecting the Bernstein-Vazirani CX gates and reversing Qiskit's little-endian key yields '1010' for MIG-DELTA and '1100' for INCIDENT-7, matching registry_fingerprint.",
+      "assumption": "Qubit index i maps to canonical logical slot i (q0..q3) and build_bv_probe is not tampered with prior to compilation.",
+      "limitation": "Verifies that the prepared quantum oracle matches the registry in the demo cases, but cannot detect if an external actor replaces the quantum circuit itself with a matching spoofed oracle."
+    },
+    {
+      "claim": "Metadata CAN alter the legacy decision (and CANNOT alter secure_decision)",
+      "evidence": "Phase B, C & E (controlled_experiment, minimal_reproducer, attack_demo): Holding the circuit constant ('1000' or '1010') while changing compatibility_map from [0, 1, 2, 3] to [1, 0, 2, 3] changes reported_fingerprint and flips MATCH to MISMATCH.",
+      "assumption": "The legacy service uses compatibility_decode(counts, compatibility_map) on untrusted manifest metadata before comparing against registry_fingerprint.",
+      "limitation": "Hamming weight invariant: because compatibility_map only permutes bit positions, metadata manipulation can only reach target strings with the exact same number of 0s and 1s."
+    },
+    {
+      "claim": "The mitigation generalizes",
+      "evidence": "Phase D & Research Extension (defense_results, extension_results): secure_decode and secure_decision pass all unseen positive/negative tests, all 16x24 4-bit permutations, n-bit scaling (n=16), and blind metamorphic invariance tests.",
+      "assumption": "Registry fingerprints are defined in canonical q0..q(n-1) order and raw measurement counts originate from genuine quantum probe execution.",
+      "limitation": "Secures the classical decoding boundary against metadata tampering, but does not protect against an attacker who compromises the classical memory to overwrite raw counts or registry_fingerprint directly."
+    }
+  ],
+  "team_member_contributions": [
+    {
+      "member": "Richard Watry & Dylane Mahazoasy (Investigator)",
+      "role": "Triage, threat modeling, and three-boundary fault localization",
+      "contributions": [
+        "Executed all 4 instance cases, verified 512/512 deterministic raw counts and Statevector probabilities, and ruled out quantum noise.",
+        "Isolated the fault across the 3 system boundaries to compatibility_decode() and proved the causal claim via controlled_experiment."
+      ]
+    },
+    {
+      "member": "Richard Watry & Dylane Mahazoasy (Exploit Developer)",
+      "role": "Minimal reproducer, O(n) permutation exploit, and Hamming-weight invariant analysis",
+      "contributions": [
+        "Built minimal_reproducer on source_fingerprint '1000' comparing [0,1,2,3] vs [1,0,2,3].",
+        "Implemented craft_compatibility_map and craft_compatibility_map_n_bits (n=16) and proved the Hamming-weight reachability bound across all 16x24 4-bit cases."
+      ]
+    },
+    {
+      "member": "Richard Watry & Dylane Mahazoasy (Defense Analyst)",
+      "role": "Canonical secure_decode / secure_decision implementation and metamorphic verification",
+      "contributions": [
+        "Implemented secure_decode and secure_decision enforcing canonical q0..q(n-1) ordering independent of manifest metadata.",
+        "Validated 13/13 positive, negative, and unseen spoofing test cases plus blind metamorphic invariance tests."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+transition,unitary_equivalent
+00:input -> 01:normalization,True
+01:normalization -> 02:phase-convention,True
+02:phase-convention -> 03:vendor-echo-balance,False
+03:vendor-echo-balance -> 04:basis-lowering,True
